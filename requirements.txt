@@ -1,0 +1,10 @@
+torch==2.2
+torchaudio
+torchvision
+pydantic-settings
+pydantic
+tqdm
+numpy
+pillow
+wandb
+tensorboard
