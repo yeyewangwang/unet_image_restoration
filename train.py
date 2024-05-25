@@ -5,10 +5,7 @@ from typing import Tuple
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset, Subset
-from torch.utils.tensorboard import SummaryWriter
 import wandb as wb
-# from torchinfo import summary
-
 from model.image_restoration_model import ImageRestorationModel
 from utils.loss import reconstruction_loss
 from data.dataset import ImageRestorationDataset
@@ -59,8 +56,6 @@ class Trainer:
         self.criterion = torch.nn.BCELoss()
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=args.lr)
-
-        self.writer = SummaryWriter()
         wb.init(project="unet-image-restoration")
 
     @staticmethod
@@ -93,9 +88,9 @@ class Trainer:
                                           transform=transform,
                                           target_transform=transform,
                                           mask_transform=transform)
-        # TODO: limit dataloading size for testing purposes
-        dataset = Subset(dataset, range(25))
-        batch_size = min(batch_size, 4)
+        # [Testing only] limit dataloading size for testing purposes
+        dataset = Subset(dataset, range(3))
+        batch_size = min(batch_size, 3)
 
         loader = DataLoader(dataset,
                             batch_size=batch_size,
@@ -200,13 +195,13 @@ class Trainer:
                 self.args.resume_path)
 
         self.model.train()
-        # self.set_seed(global_seed, device=self.device) does not work
         for epoch in range(start_epoch, self.args.epochs):
             num_batches = len(self.train_loader)
             for batch_idx, (data, target, target_mask) in enumerate(
                     self.train_loader):
                 if epoch == start_epoch and batch_idx < start_batch:
                     continue  # Skip past batches if resuming
+
                 # Logging and checkpointing flags
                 do_logging = (batch_idx + 1) % self.args.checkpoint_interval == 0
                 is_last_batch = batch_idx + 1 == num_batches
@@ -229,10 +224,6 @@ class Trainer:
                     print(
                         f"{epoch=}, {batch_idx=}, {loss_mask.item()=:.32f}, "
                         f"{loss_l1_images=:.32f}, {loss.item()=:.32f}")
-                    self.writer.add_scalar('Loss/train',
-                                           loss.item(),
-                                           epoch * len(
-                                               self.train_loader) + batch_idx)
                     wb.log({'train_loss_mask': loss_mask.item()})
                     wb.log({'train_l1_images': loss_l1_images})
                     wb.log({'train_loss': loss.item()})
@@ -257,9 +248,6 @@ class Trainer:
                     print(f"{epoch=}, {batch_idx=}, {prefix}{val_loss_mask.item()=:.32f}, "
                         f"{prefix}{val_loss_l1_images=:.32f}, {prefix}{val_loss.item()=:.32f}")
 
-                    self.writer.add_scalar(f'Loss/{prefix}valid',
-                                           val_loss.item(),
-                                           epoch * len(self.train_loader) + batch_idx)
                     wb.log({f'{prefix}val_loss_mask': val_loss_mask.item()})
                     wb.log(
                             {f'{prefix}val_l1_images': val_loss_l1_images})
