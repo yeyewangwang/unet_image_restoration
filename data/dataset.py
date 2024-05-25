@@ -27,7 +27,6 @@ class ImageRestorationDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, Tuple[np.ndarray,np.ndarray]]:
         img_id = self.img_mask_bases[idx]
-        # print(f"Image id: {img_id}")
 
         corrupt_img_path = os.path.join(self.img_dir, "corrupted_imgs", f"{img_id}.png")
         corrupt_img = normalize_rgb_img(read_rgba_img(corrupt_img_path))

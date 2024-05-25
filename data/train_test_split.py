@@ -1,7 +1,4 @@
-import os, argparse, random
-from typing import List
-from shutil import copy2
-
+import argparse
 import os
 import shutil
 from typing import List
@@ -79,9 +76,6 @@ def create_datasets(src_dir: str, dst_dir: str, train_ratio: float,
     # Choose one directory to sample file names from
     all_files = list(files_list[0])
 
-    # Shuffle the list of files
-    # random.shuffle(all_files)
-
     # Calculate split indices
     total_files = len(all_files) + existing_validation
     train_end = int(total_files * train_ratio)
@@ -98,7 +92,7 @@ def create_datasets(src_dir: str, dst_dir: str, train_ratio: float,
     copy_files(validation_files, kind='validation', dst_dir=dst_dir, paths=paths)
 
 
-def move_existing_validation(src_dir: str, dst_dir: str,):
+def move_existing_validation(src_dir: str, dst_dir: str):
     # Paths to the subdirectories
     paths = {
         'binary_masks': os.path.join(src_dir,

@@ -16,9 +16,14 @@ from data.img_visualize import pred_to_imgs
 
 
 def worker_init_fn(worker_id: int):
+    """Dataloader worker initialization function.
+    Ensures that worker uses same random sequence to produce
+    each batch, given the same global random seed.
+    """
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
 
 # Trainer Class
 class Trainer:
@@ -39,25 +44,24 @@ class Trainer:
         self.set_seed(global_seed, device=self.device)
 
         train_dir = os.path.join(args.dataset_dir, "train")
-        self.train_loader = self.create_data_loader(train_dir, g)
+        self.train_loader = self.create_data_loader(train_dir, g, batch_size=self.args.batch_size)
 
         small_valid_dir = os.path.join(args.dataset_dir, "original_validation")
         self.original_val_loader = self.create_data_loader(
-            small_valid_dir, g, is_valid=True)
+            small_valid_dir, g, batch_size=25, is_validation=True)
 
         valid_dir = os.path.join(args.dataset_dir,
                                  "validation")
         self.val_loader = self.create_data_loader(
-            valid_dir, g, is_valid=True)
+            valid_dir, g, batch_size=512, is_validation=True)
 
         self.model = self.load_model().to(self.device)
         self.criterion = torch.nn.BCELoss()
-        self.criterion_no_reduce = torch.nn.BCELoss(reduction="none")
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=args.lr)
 
         self.writer = SummaryWriter()
-        wb.init(project="pytorch-trainer")
+        wb.init(project="unet-image-restoration")
 
     @staticmethod
     def load_model():
@@ -71,8 +75,6 @@ class Trainer:
         torch.manual_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
-        # os.environ['CUDNN_DETERMINISTIC'] = '1'
-        os.environ['PYTHONHASHSEED'] = str(seed)
         if device == "cuda":
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(
@@ -81,81 +83,41 @@ class Trainer:
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
 
-    def create_data_loader(self, data_dir: str,
-                                 g,
-                                 is_valid: bool = False):
+    @staticmethod
+    def create_data_loader(data_dir: str,
+                           g: torch.Generator,
+                           batch_size: int,
+                           is_validation: bool = False) -> torch.utils.data.DataLoader:
         transform = torch.from_numpy
         dataset = ImageRestorationDataset(img_dir=data_dir,
                                           transform=transform,
                                           target_transform=transform,
                                           mask_transform=transform)
         # TODO: limit dataloading size for testing purposes
-        # if is_valid:
         dataset = Subset(dataset, range(25))
+        batch_size = min(batch_size, 4)
 
         loader = DataLoader(dataset,
-                            batch_size=self.args.batch_size,
-                            shuffle=True if not is_valid else True,
+                            batch_size=batch_size,
+                            shuffle=True if not is_validation else True,
                             num_workers=1,
                             prefetch_factor=1,
                             drop_last=True,
-        # prefetch_factor=0, does not work to improve reproducibility
                             worker_init_fn=worker_init_fn,
                             generator=g)
         return loader
 
-    def run_validation(self, use_original: bool = False) -> Tuple[torch.Tensor, float, torch.Tensor]:
-        self.model.eval()
-        val_loss = 0
-        val_loss_mask = 0
-        val_loss_l1_images = 0
-        val_loader = self.original_val_loader if use_original else self.val_loader
-        with torch.no_grad():
-            for data, src_img, target_mask in val_loader:
-                data = data.to(self.device)
-                src_img = src_img.to(self.device)
-                target_mask = target_mask.to(self.device)
-                reconstruction, mask = self.model(
-                    data)
-
-                print(torch.flatten(mask, start_dim=1).shape)
-                loss_mask = self.criterion_no_reduce(
-                    torch.flatten(mask, start_dim=1),
-                    torch.flatten(target_mask,
-                                  start_dim=1).to(
-                        torch.float32))
-
-                loss_l1_images = reconstruction_loss(
-                    reconstruction, src_img, target_mask, reduce='none')
-                losses = loss_mask + 2 * loss_l1_images
-
-                # TODO: run only once
-                if use_original:
-                    self.log_imgs(data, src_img,
-                                  target_mask,
-                                  reconstruction, mask,
-                                  losses, 0.1,
-                                  mode="original")
-
-                val_loss += torch.mean(losses)
-                val_loss_mask += torch.mean(loss_mask)
-                val_loss_l1_images += torch.mean(loss_l1_images)
-
-        val_loss /= len(val_loader)
-        val_loss_mask /= len(val_loader)
-        val_loss_l1_images /= len(val_loader)
-        return val_loss_mask, val_loss_l1_images, val_loss
-
-    def log_imgs(self, data, src_imgs, target_mask,
-                       pred_imgs, pred_mask,
-                       loss, binary_mask_threshold,
-                       mode="training"):
-        titles = ["corrupted", "source", "true mask",
-                  "reconstructed", "predicted image", "predicted mask"]
+    @staticmethod
+    def log_imgs(data: torch.Tensor, src_imgs: torch.Tensor, target_mask: torch.Tensor,
+                 pred_imgs: torch.Tensor, pred_mask: torch.Tensor,
+                 binary_mask_threshold: float,
+                 mode="training"):
+        img_titles = ["corrupted", "source", "true_mask",
+                  "reconstructed", "predicted_image", "predicted_mask"]
         for i, imgs in enumerate(pred_to_imgs(data, src_imgs, target_mask,
                                  pred_imgs, pred_mask,
-                                 loss, binary_mask_threshold, mode=="training")):
-            wb.log({mode+titles[i]: [wb.Image(image) for image
+                                 binary_mask_threshold)):
+            wb.log({f"{mode}_{img_titles[i]}": [wb.Image(image) for image
                                 in imgs]})
 
     def save_inference_checkpoint(self, epoch: int, batch_idx: int):
@@ -194,6 +156,42 @@ class Trainer:
         global_seed = checkpoint['global_seed']
         return checkpoint['epoch'], checkpoint['batch_idx'], global_seed
 
+    def run_validation(self, use_original: bool = False) -> Tuple[torch.Tensor, float, torch.Tensor]:
+        self.model.eval()
+        val_loss = 0
+        val_loss_mask = 0
+        val_loss_l1_images = 0
+        val_loader = self.original_val_loader if use_original else self.val_loader
+        with torch.no_grad():
+            for data, src_img, target_mask in val_loader:
+                data = data.to(self.device)
+                src_img = src_img.to(self.device)
+                target_mask = target_mask.to(self.device)
+                reconstruction, mask = self.model(data)
+                loss_mask = self.criterion(
+                    torch.flatten(mask, start_dim=1),
+                    torch.flatten(target_mask,
+                                  start_dim=1).to(
+                        torch.float32))
+                loss_l1_images = reconstruction_loss(
+                    reconstruction, src_img, target_mask)
+                losses = loss_mask + 2 * loss_l1_images
+
+                if use_original:
+                    self.log_imgs(data, src_img,
+                                  target_mask,
+                                  reconstruction, mask,
+                                  0.1,
+                                  mode="original_val")
+                val_loss += losses
+                val_loss_mask += loss_mask
+                val_loss_l1_images += loss_l1_images
+
+        val_loss /= len(val_loader)
+        val_loss_mask /= len(val_loader)
+        val_loss_l1_images /= len(val_loader)
+        return val_loss_mask, val_loss_l1_images, val_loss
+
     def train(self):
         start_epoch, start_batch = 0, 0
         global_seed = self.global_seed
@@ -209,21 +207,25 @@ class Trainer:
                     self.train_loader):
                 if epoch == start_epoch and batch_idx < start_batch:
                     continue  # Skip past batches if resuming
+                # Logging and checkpointing flags
+                do_logging = (batch_idx + 1) % self.args.checkpoint_interval == 0
+                is_last_batch = batch_idx + 1 == num_batches
+
                 corrupted_img = data.to(
                     self.device)
-
                 src_img = target.to(self.device)
                 target_mask = target_mask.to(self.device)
 
                 self.optimizer.zero_grad()
                 reconstruction, mask = self.model(corrupted_img)
-                loss_mask = self.criterion(torch.flatten(mask, start_dim=1), torch.flatten(target_mask, start_dim=1).to(torch.float32))
+                loss_mask = self.criterion(torch.flatten(mask, start_dim=1),
+                                           torch.flatten(target_mask, start_dim=1).to(torch.float32))
                 loss_l1_images = reconstruction_loss(reconstruction, src_img, target_mask)
                 loss = loss_mask + 2 * loss_l1_images
                 loss.backward()
                 self.optimizer.step()
 
-                if (batch_idx + 1) % self.args.log_interval == 0:
+                if do_logging:
                     print(
                         f"{epoch=}, {batch_idx=}, {loss_mask.item()=:.32f}, "
                         f"{loss_l1_images=:.32f}, {loss.item()=:.32f}")
@@ -235,60 +237,47 @@ class Trainer:
                     wb.log({'train_l1_images': loss_l1_images})
                     wb.log({'train_loss': loss.item()})
 
-                # TODO: add False here to run the supersized validation set
-                batch_logging = (batch_idx + 1) % self.args.checkpoint_interval == 0
-                if batch_logging:
-
-                    # Compute the loss for each individual data point
-                    individual_losses = self.criterion_no_reduce(
-                        torch.flatten(mask, start_dim=1),
-                        torch.flatten(target_mask,
-                                      start_dim=1).to(
-                            torch.float32)) + 2 * reconstruction_loss(
-                        reconstruction, src_img,
-                        target_mask, reduce='none')
                     self.log_imgs(data, target, target_mask,
                                   reconstruction, mask,
-                                  individual_losses, 0.1,
-                                  mode="training")
+                                  0.1, mode="training")
                     self.save_checkpoint(epoch, batch_idx,
                                          global_seed)
 
                 for use_original in [True, False]:
-                    if use_original and not batch_logging:
+                    # Run the 25 image validation set as frequent as logging
+                    if use_original and not do_logging:
                         continue
-                    if use_original == False and batch_idx + 1 != num_batches:
+                    # Run the full validation set at the end of each epoch
+                    if not use_original and not is_last_batch:
                         continue
 
                     val_loss_mask, val_loss_l1_images, val_loss = self.run_validation(use_original=use_original)
                     self.model.train()
                     prefix = "original_" if use_original else ""
-                    print(
-                            f"{epoch=}, {batch_idx=}, {prefix}{val_loss_mask.item()=:.32f}, "
-                            f"{prefix}{val_loss_l1_images=:.32f}, {prefix}{val_loss.item()=:.32f}")
+                    print(f"{epoch=}, {batch_idx=}, {prefix}{val_loss_mask.item()=:.32f}, "
+                        f"{prefix}{val_loss_l1_images=:.32f}, {prefix}{val_loss.item()=:.32f}")
 
                     self.writer.add_scalar(f'Loss/{prefix}valid',
-                                                val_loss.item(),
-                                                epoch * len(
-                                                self.train_loader) + batch_idx)
+                                           val_loss.item(),
+                                           epoch * len(self.train_loader) + batch_idx)
                     wb.log({f'{prefix}val_loss_mask': val_loss_mask.item()})
                     wb.log(
                             {f'{prefix}val_l1_images': val_loss_l1_images})
                     wb.log({f'{prefix}val_loss': val_loss.item()})
 
                 # Saving inference checkpoint at end of every epoch
-                if batch_idx + 1 != num_batches:
+                if is_last_batch:
                     self.save_inference_checkpoint(epoch, batch_idx)
 
     @staticmethod
     def parse_args() -> argparse.Namespace:
         parser = argparse.ArgumentParser(
-            description="PyTorch Trainer")
+            description="PyTorch Unet Trainer")
         parser.add_argument('--batch_size', type=int,
-                            default=24,
+                            default=8,
                             help='input batch size for training')
         parser.add_argument('--epochs', type=int,
-                            default=2,
+                            default=20,
                             help='number of epochs to train')
         parser.add_argument('--lr', type=float,
                             default=0.0003,
