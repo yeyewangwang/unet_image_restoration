@@ -4,7 +4,7 @@ import random
 from typing import Tuple
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torch.utils.tensorboard import SummaryWriter
 import wandb as wb
 # from torchinfo import summary
@@ -12,13 +12,13 @@ import wandb as wb
 from model.image_restoration_model import ImageRestorationModel
 from utils.loss import reconstruction_loss
 from data.dataset import ImageRestorationDataset
+from data.img_visualize import pred_to_imgs
 
 
 def worker_init_fn(worker_id: int):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
-
 
 # Trainer Class
 class Trainer:
@@ -52,6 +52,7 @@ class Trainer:
 
         self.model = self.load_model().to(self.device)
         self.criterion = torch.nn.BCELoss()
+        self.criterion_no_reduce = torch.nn.BCELoss(reduction="none")
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=args.lr)
 
@@ -88,12 +89,17 @@ class Trainer:
                                           transform=transform,
                                           target_transform=transform,
                                           mask_transform=transform)
+        # TODO: limit dataloading size for testing purposes
+        # if is_valid:
+        dataset = Subset(dataset, range(25))
+
         loader = DataLoader(dataset,
                             batch_size=self.args.batch_size,
                             shuffle=True if not is_valid else True,
                             num_workers=1,
                             prefetch_factor=1,
-                            # prefetch_factor=0, does not work to improve reproducibility
+                            drop_last=True,
+        # prefetch_factor=0, does not work to improve reproducibility
                             worker_init_fn=worker_init_fn,
                             generator=g)
         return loader
@@ -111,23 +117,46 @@ class Trainer:
                 target_mask = target_mask.to(self.device)
                 reconstruction, mask = self.model(
                     data)
-                loss_mask = self.criterion(
+
+                print(torch.flatten(mask, start_dim=1).shape)
+                loss_mask = self.criterion_no_reduce(
                     torch.flatten(mask, start_dim=1),
                     torch.flatten(target_mask,
                                   start_dim=1).to(
                         torch.float32))
-                loss_l1_images = reconstruction_loss(
-                    reconstruction, src_img, target_mask)
-                loss = loss_mask + 2 * loss_l1_images
 
-                val_loss += loss
-                val_loss_mask += loss_mask
-                val_loss_l1_images += loss_l1_images
+                loss_l1_images = reconstruction_loss(
+                    reconstruction, src_img, target_mask, reduce='none')
+                losses = loss_mask + 2 * loss_l1_images
+
+                # TODO: run only once
+                if use_original:
+                    self.log_imgs(data, src_img,
+                                  target_mask,
+                                  reconstruction, mask,
+                                  losses, 0.1,
+                                  mode="original")
+
+                val_loss += torch.mean(losses)
+                val_loss_mask += torch.mean(loss_mask)
+                val_loss_l1_images += torch.mean(loss_l1_images)
 
         val_loss /= len(val_loader)
         val_loss_mask /= len(val_loader)
         val_loss_l1_images /= len(val_loader)
         return val_loss_mask, val_loss_l1_images, val_loss
+
+    def log_imgs(self, data, src_imgs, target_mask,
+                       pred_imgs, pred_mask,
+                       loss, binary_mask_threshold,
+                       mode="training"):
+        titles = ["corrupted", "source", "true mask",
+                  "reconstructed", "predicted image", "predicted mask"]
+        for i, imgs in enumerate(pred_to_imgs(data, src_imgs, target_mask,
+                                 pred_imgs, pred_mask,
+                                 loss, binary_mask_threshold, mode=="training")):
+            wb.log({mode+titles[i]: [wb.Image(image) for image
+                                in imgs]})
 
     def save_inference_checkpoint(self, epoch: int, batch_idx: int):
         # Save all necessary components to resume training
@@ -175,18 +204,19 @@ class Trainer:
         self.model.train()
         # self.set_seed(global_seed, device=self.device) does not work
         for epoch in range(start_epoch, self.args.epochs):
+            num_batches = len(self.train_loader)
             for batch_idx, (data, target, target_mask) in enumerate(
                     self.train_loader):
                 if epoch == start_epoch and batch_idx < start_batch:
                     continue  # Skip past batches if resuming
-                corrupt_img = data.to(
+                corrupted_img = data.to(
                     self.device)
 
                 src_img = target.to(self.device)
                 target_mask = target_mask.to(self.device)
 
                 self.optimizer.zero_grad()
-                reconstruction, mask = self.model(corrupt_img)
+                reconstruction, mask = self.model(corrupted_img)
                 loss_mask = self.criterion(torch.flatten(mask, start_dim=1), torch.flatten(target_mask, start_dim=1).to(torch.float32))
                 loss_l1_images = reconstruction_loss(reconstruction, src_img, target_mask)
                 loss = loss_mask + 2 * loss_l1_images
@@ -205,45 +235,63 @@ class Trainer:
                     wb.log({'train_l1_images': loss_l1_images})
                     wb.log({'train_loss': loss.item()})
 
-                if (batch_idx + 1) % self.args.checkpoint_interval == 0:
-                    # TODO: add False here to run the supersized validation set
-                    for use_original in [True]:
-                        val_loss_mask, val_loss_l1_images, val_loss = self.run_validation(use_original=use_original)
-                        self.model.train()
+                # TODO: add False here to run the supersized validation set
+                batch_logging = (batch_idx + 1) % self.args.checkpoint_interval == 0
+                if batch_logging:
 
-                        prefix = "original_" if use_original else ""
+                    # Compute the loss for each individual data point
+                    individual_losses = self.criterion_no_reduce(
+                        torch.flatten(mask, start_dim=1),
+                        torch.flatten(target_mask,
+                                      start_dim=1).to(
+                            torch.float32)) + 2 * reconstruction_loss(
+                        reconstruction, src_img,
+                        target_mask, reduce='none')
+                    self.log_imgs(data, target, target_mask,
+                                  reconstruction, mask,
+                                  individual_losses, 0.1,
+                                  mode="training")
+                    self.save_checkpoint(epoch, batch_idx,
+                                         global_seed)
 
-                        print(
-                            f"{epoch=}, {batch_idx=}, {val_loss_mask.item()=:.32f}, "
-                            f"{val_loss_l1_images=:.32f}, {val_loss.item()=:.32f}")
+                for use_original in [True, False]:
+                    if use_original and not batch_logging:
+                        continue
+                    if use_original == False and batch_idx + 1 != num_batches:
+                        continue
 
-                        self.writer.add_scalar(f'Loss/{prefix}valid',
+                    val_loss_mask, val_loss_l1_images, val_loss = self.run_validation(use_original=use_original)
+                    self.model.train()
+                    prefix = "original_" if use_original else ""
+                    print(
+                            f"{epoch=}, {batch_idx=}, {prefix}{val_loss_mask.item()=:.32f}, "
+                            f"{prefix}{val_loss_l1_images=:.32f}, {prefix}{val_loss.item()=:.32f}")
+
+                    self.writer.add_scalar(f'Loss/{prefix}valid',
                                                 val_loss.item(),
                                                 epoch * len(
                                                 self.train_loader) + batch_idx)
-                        wb.log({f'{prefix}val_loss_mask': val_loss_mask.item()})
-                        wb.log(
+                    wb.log({f'{prefix}val_loss_mask': val_loss_mask.item()})
+                    wb.log(
                             {f'{prefix}val_l1_images': val_loss_l1_images})
-                        wb.log({f'{prefix}val_loss': val_loss.item()})
+                    wb.log({f'{prefix}val_loss': val_loss.item()})
 
-                    self.save_checkpoint(epoch, batch_idx, global_seed)
-
-                    # Saving 1 inference checkpoint for every 2 training checkpoints
-                    if (batch_idx + 1) % (2*self.args.checkpoint_interval) == 0:
-                        self.save_inference_checkpoint(epoch, batch_idx)
+                # Saving inference checkpoint at end of every epoch
+                if batch_idx + 1 != num_batches:
+                    self.save_inference_checkpoint(epoch, batch_idx)
 
     @staticmethod
     def parse_args() -> argparse.Namespace:
         parser = argparse.ArgumentParser(
             description="PyTorch Trainer")
         parser.add_argument('--batch_size', type=int,
-                            default=64,
+                            default=24,
                             help='input batch size for training')
         parser.add_argument('--epochs', type=int,
-                            default=10,
+                            default=2,
                             help='number of epochs to train')
         parser.add_argument('--lr', type=float,
-                            default=0.001,
+                            default=0.0003,
                             help='learning rate')
         parser.add_argument('--dataset_dir', type=str,
                             default="./input",
@@ -252,10 +300,10 @@ class Trainer:
                             default='./checkpoints',
                             help='directory to save checkpoints')
         parser.add_argument('--log_interval', type=int,
-                            default=10,
+                            default=1,
                             help='how many batches to wait before logging training status')
         parser.add_argument('--checkpoint_interval',
-                            type=int, default=50,
+                            type=int, default=2,
                             help='how many batches to wait before creating a checkpoint, '
                                  'and computing validation accuracy, and wait twice this number '
                                  'of batches to save an inference checkpoint')
