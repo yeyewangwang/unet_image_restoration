@@ -16,7 +16,7 @@ class ImageRestorationModel(nn.Module):
         self.enc2 = UnetEncoderBlock(in_channels=init_channels, out_channels=2*init_channels)
         self.enc3 = UnetEncoderBlock(in_channels=2*init_channels, out_channels=4*init_channels)
         self.enc4 = UnetEncoderBlock(in_channels=4*init_channels, out_channels=8*init_channels)
-        self.enc5 = UnetEncoderBlock(in_channels=8*init_channels, out_channels=16*init_channels,is_final_block=True)
+        self.enc5 = UnetEncoderBlock(in_channels=8*init_channels, out_channels=16*init_channels, is_final_block=True)
         self.dec4 = UnetDecoderBlock(
             in_channels=16* init_channels,
             out_channels=8*init_channels)
@@ -41,8 +41,8 @@ class ImageRestorationModel(nn.Module):
         self.mask_dec1 = UnetDecoderBlock(
             in_channels=2 * init_channels,
             out_channels=init_channels)
-        self.reconstruction_head = ReconstructHead(init_channels)
-        self.mask_head = MaskHead(init_channels)
+        self.reconstruction_head = ReconstructHead(in_channels=init_channels)
+        self.mask_head = MaskHead(in_channels=init_channels)
 
     def forward(
             self, corrupted_image: torch.Tensor
