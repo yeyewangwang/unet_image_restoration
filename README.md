@@ -8,11 +8,9 @@ The original U-Net paper:
 ### Facts about UNet:
 1. Symmetrical, skip connection to both reconstruct the pixels and enhance the gradient flow.
 2. Inside each block, we have three residual sub-blocks that maintain the photo resolution.
-3. Various layers can be formulated by `F(X) + X`.  Trivially `F` can be zero, then only skip connection is passed to subsequent layers. Similar to ResNet,  
-   it allows for deeper neural networks.
+3. Various layers can be formulated by `F(X) + X`.  Trivially `F` can be zero, then only skip connection is passed to subsequent layers. Similar to ResNet, it allows for deeper neural networks.
 4. Photo resolution (H and W) down and up, channel resolution (C) up and down.
-5. Resampling with convolution, to make network size independent of input size, and to save on the total number of parameters. 
-(It does away with fully connected layers).
+5. Resampling with convolution, to make network size independent of input size, and to save on the total number of parameters. (It does away with fully connected layers).
 6. Extreme care for resolution changes:
    1. use mirrored padding in convolution;
    2. bilinear upsampling.
