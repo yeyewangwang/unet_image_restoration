@@ -1,6 +1,5 @@
 """
-File: run_validation.py
-Description: Load a pretrained model from a PyTorch checkpoint,
+Load a pretrained model from a PyTorch checkpoint,
 generate predictions on the validation set, and save the predicted masks, predicted images,
 and reconstructed images to a directory.
 """
@@ -15,7 +14,7 @@ import torch
 from data.img_utils import (convert_img_ndarray_to_pil_img,
                             convert_mask_ndarray_to_pil_img, normalize_rgb_img,
                             read_rgba_img)
-from model.image_restoration_model import ImageRestorationModel
+from model.image_restoration_model import UnetImageRestorationModel
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -25,7 +24,7 @@ if __name__ == '__main__':
                         help='Path to PyTorch model checkpoint')
     parser.add_argument('--data_dir',
                         type=str,
-                        default='./data/validation',
+                        default='./input/original_validation',
                         help='Data directory')
     parser.add_argument(
         '--output_dir',
@@ -44,21 +43,23 @@ if __name__ == '__main__':
     )
     args = parser.parse_args()
 
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
     # -------------------------------------------------------------------------------
     # Load the PyTorch Model
     # -------------------------------------------------------------------------------
-    model_checkpoint_state_dict = torch.load(args.model_checkpoint)
+    model_checkpoint_state_dict = torch.load(args.model_checkpoint, map_location=torch.device(device))
 
     # NOTE: If you have parameters needed to initialize your `ImageRestorationModel`
     # please place them in the kwargs, so that the model can be properly initialized.
     kwargs = {}
 
-    image_restoration_model = ImageRestorationModel(**kwargs)
+    image_restoration_model = UnetImageRestorationModel(**kwargs)
     image_restoration_model.load_state_dict(
         model_checkpoint_state_dict)
     image_restoration_model.eval()
-    # Changed the following, PLEASE MANUALLY MODIFY
-    image_restoration_model.to('cpu')
+
+    image_restoration_model.to(device)
 
     # -------------------------------------------------------------------------------
     # Generate predictions for validation set
@@ -80,7 +81,7 @@ if __name__ == '__main__':
             norm_corrupted_img = torch.from_numpy(
                 normalize_rgb_img(img=corrupted_img))
             # Changed the following, PLEASE MANUALLY MODIFY
-            norm_corrupted_img = norm_corrupted_img.to('cpu')
+            norm_corrupted_img = norm_corrupted_img.to(device)
             norm_corrupted_img = norm_corrupted_img.unsqueeze(0) # The model expects a batch dimension
 
             # Generate a prediction

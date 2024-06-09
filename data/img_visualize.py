@@ -31,8 +31,12 @@ def pred_to_imgs(data: torch.Tensor, src_imgs: torch.Tensor, target_mask: torch.
     a list of true masks,
     a list of reconstructed images,a list of predicted images,
     a list of predicted masks).
+
+    Note: this code should be optimized for parallelism on GPU.
     """
-    selected_imgs = torch.arange(4)
+    # Testing only
+    # selected_imgs = torch.arange(3)
+    selected_imgs = torch.arange(25)
 
     # Move to CPU and numpy
     norm_corrupted_img = data[selected_imgs].detach().cpu().numpy()  # 25 x c x h x w
@@ -62,6 +66,7 @@ def pred_to_imgs(data: torch.Tensor, src_imgs: torch.Tensor, target_mask: torch.
     binary_mask_pil_imgs = []
 
     for i in range(norm_corrupted_img.shape[0]):
+        # TODO: use Tensor operations from my own code
         input_pil_imgs.append(convert_img_ndarray_to_pil_img(
                 norm_img=norm_corrupted_img[i]))
         src_pil_imgs.append(

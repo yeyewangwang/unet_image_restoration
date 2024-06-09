@@ -4,11 +4,10 @@ import random
 from typing import Tuple
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset
 import wandb as wb
-from model.image_restoration_model import ImageRestorationModel
+from model.image_restoration_model import UnetImageRestorationModel
 from utils.loss import reconstruction_loss
-from data.dataset import ImageRestorationDataset
+from data.dataset import create_data_loader
 from data.img_visualize import pred_to_imgs
 
 
@@ -41,19 +40,22 @@ class Trainer:
         self.set_seed(global_seed, device=self.device)
 
         train_dir = os.path.join(args.dataset_dir, "train")
-        self.train_loader = self.create_data_loader(train_dir, g, batch_size=self.args.batch_size)
+        self.train_loader = create_data_loader(train_dir,
+                                               batch_size=self.args.batch_size, worker_init_fn=worker_init_fn,
+                                               rng=g)
 
         small_valid_dir = os.path.join(args.dataset_dir, "original_validation")
-        self.original_val_loader = self.create_data_loader(
-            small_valid_dir, g, batch_size=25, is_validation=True)
+        self.original_val_loader = create_data_loader(
+            small_valid_dir, batch_size=25, is_validation=True, rng=g)
 
         valid_dir = os.path.join(args.dataset_dir,
                                  "validation")
-        self.val_loader = self.create_data_loader(
-            valid_dir, g, batch_size=512, is_validation=True)
+        self.val_loader = create_data_loader(
+            valid_dir, batch_size=512, is_validation=True, rng=g)
 
         self.model = self.load_model().to(self.device)
         self.criterion = torch.nn.BCELoss()
+
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), lr=args.lr)
         wb.init(project="unet-image-restoration")
@@ -61,7 +63,7 @@ class Trainer:
     @staticmethod
     def load_model():
         """Load the PyTorch model object"""
-        return ImageRestorationModel()
+        return UnetImageRestorationModel()
 
     @staticmethod
     def set_seed(seed: int,
@@ -78,32 +80,10 @@ class Trainer:
                 torch.backends.cudnn.deterministic = True
                 torch.backends.cudnn.benchmark = False
 
-    @staticmethod
-    def create_data_loader(data_dir: str,
-                           g: torch.Generator,
-                           batch_size: int,
-                           is_validation: bool = False) -> torch.utils.data.DataLoader:
-        transform = torch.from_numpy
-        dataset = ImageRestorationDataset(img_dir=data_dir,
-                                          transform=transform,
-                                          target_transform=transform,
-                                          mask_transform=transform)
-        # [Testing only] limit dataloading size for testing purposes
-        dataset = Subset(dataset, range(3))
-        batch_size = min(batch_size, 3)
-
-        loader = DataLoader(dataset,
-                            batch_size=batch_size,
-                            shuffle=True if not is_validation else True,
-                            num_workers=1,
-                            prefetch_factor=1,
-                            drop_last=True,
-                            worker_init_fn=worker_init_fn,
-                            generator=g)
-        return loader
 
     @staticmethod
-    def log_imgs(data: torch.Tensor, src_imgs: torch.Tensor, target_mask: torch.Tensor,
+    def log_imgs(data: torch.Tensor, src_imgs: torch.Tensor,
+                 target_mask: torch.Tensor,
                  pred_imgs: torch.Tensor, pred_mask: torch.Tensor,
                  binary_mask_threshold: float,
                  mode="training"):
@@ -220,19 +200,27 @@ class Trainer:
                 loss.backward()
                 self.optimizer.step()
 
+                # Log to Weights and Biases each epoch
+                # intended to show any instabilities.
+                wb.log(
+                    {'train_loss_mask': loss_mask.item()})
+                wb.log({'train_l1_images': loss_l1_images})
+                wb.log({'train_loss': loss.item()})
+
                 if do_logging:
                     print(
                         f"{epoch=}, {batch_idx=}, {loss_mask.item()=:.32f}, "
                         f"{loss_l1_images=:.32f}, {loss.item()=:.32f}")
-                    wb.log({'train_loss_mask': loss_mask.item()})
-                    wb.log({'train_l1_images': loss_l1_images})
-                    wb.log({'train_loss': loss.item()})
-
                     self.log_imgs(data, target, target_mask,
                                   reconstruction, mask,
                                   0.1, mode="training")
                     self.save_checkpoint(epoch, batch_idx,
                                          global_seed)
+
+                # Saving inference checkpoint at end of every epoch
+                if is_last_batch:
+                    self.save_inference_checkpoint(
+                        epoch, batch_idx)
 
                 for use_original in [True, False]:
                     # Run the 25 image validation set as frequent as logging
@@ -253,41 +241,34 @@ class Trainer:
                             {f'{prefix}val_l1_images': val_loss_l1_images})
                     wb.log({f'{prefix}val_loss': val_loss.item()})
 
-                # Saving inference checkpoint at end of every epoch
-                if is_last_batch:
-                    self.save_inference_checkpoint(epoch, batch_idx)
 
     @staticmethod
     def parse_args() -> argparse.Namespace:
         parser = argparse.ArgumentParser(
             description="PyTorch Unet Trainer")
         parser.add_argument('--batch_size', type=int,
-                            default=8,
-                            help='input batch size for training')
+                            default=64,
+                            help='Input batch size for training')
         parser.add_argument('--epochs', type=int,
-                            default=20,
-                            help='number of epochs to train')
+                            default=30,
+                            help='Number of epochs to train')
         parser.add_argument('--lr', type=float,
                             default=0.0003,
-                            help='learning rate')
+                            help='Learning rate')
         parser.add_argument('--dataset_dir', type=str,
                             default="./input",
-                            help='Path for dataset')
+                            help='Path for input dataset')
         parser.add_argument('--checkpoint_dir', type=str,
                             default='./checkpoints',
-                            help='directory to save checkpoints')
-        parser.add_argument('--log_interval', type=int,
-                            default=1,
-                            help='how many batches to wait before logging training status')
+                            help='Directory to save checkpoints')
         parser.add_argument('--checkpoint_interval',
-                            type=int, default=2,
-                            help='how many batches to wait before creating a checkpoint, '
-                                 'and computing validation accuracy, and wait twice this number '
-                                 'of batches to save an inference checkpoint')
+                            type=int, default=60,
+                            help='How many batches to wait before creating a checkpoint '
+                                 'and computing validation accuracy for the small dataset.')
         parser.add_argument('--resume', action='store_true',
-                            help='resume training from checkpoint')
+                            help='Resume training from checkpoint')
         parser.add_argument('--resume_path', type=str,
-                            help='path to the checkpoint to resume from')
+                            help='Path to the checkpoint to resume from')
         return parser.parse_args()
 
 

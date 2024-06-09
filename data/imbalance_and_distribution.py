@@ -31,6 +31,7 @@ def positive_rate(files: List[str]) -> float:
         ratios.append(ratio)
 
     print(f"Std: {np.std(ratios)}, min: {np.min(ratios)}, max: {np.max(ratios)}")
+    print(f"total number of files {num_files}")
     return total_ratio / num_files
 
 

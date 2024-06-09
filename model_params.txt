@@ -181,3 +181,34 @@ Forward/backward pass size (MB): 13409.46
 Params size (MB): 76.80
 Estimated Total Size (MB): 13500.68
 ===============================================================================================
+
+===============================================================================================
+Input size printout, batch_size=4:
+torch.Size([4, 3, 168, 298])
+torch.Size([4, 32, 84, 149])
+torch.Size([4, 64, 42, 74])
+torch.Size([4, 128, 21, 37])
+torch.Size([4, 256, 10, 18])
+torch.Size([4, 512, 10, 18]) torch.Size([4, 256, 21, 37])
+torch.Size([4, 256, 21, 37]) torch.Size([4, 128, 42, 74])
+torch.Size([4, 128, 42, 74]) torch.Size([4, 64, 84, 149])
+torch.Size([4, 64, 84, 149]) torch.Size([4, 32, 168, 298])
+torch.Size([4, 512, 10, 18]) torch.Size([4, 256, 21, 37])
+torch.Size([4, 256, 21, 37]) torch.Size([4, 128, 42, 74])
+torch.Size([4, 128, 42, 74]) torch.Size([4, 64, 84, 149])
+torch.Size([4, 64, 84, 149]) torch.Size([4, 32, 168, 298])
+torch.Size([4, 32, 168, 298])
+torch.Size([4, 3, 168, 298])
+torch.Size([4, 32, 84, 149])
+torch.Size([4, 64, 42, 74])
+torch.Size([4, 128, 21, 37])
+torch.Size([4, 256, 10, 18])
+torch.Size([4, 512, 10, 18]) torch.Size([4, 256, 21, 37])
+torch.Size([4, 256, 21, 37]) torch.Size([4, 128, 42, 74])
+torch.Size([4, 128, 42, 74]) torch.Size([4, 64, 84, 149])
+torch.Size([4, 64, 84, 149]) torch.Size([4, 32, 168, 298])
+torch.Size([4, 512, 10, 18]) torch.Size([4, 256, 21, 37])
+torch.Size([4, 256, 21, 37]) torch.Size([4, 128, 42, 74])
+torch.Size([4, 128, 42, 74]) torch.Size([4, 64, 84, 149])
+torch.Size([4, 64, 84, 149]) torch.Size([4, 32, 168, 298])
+torch.Size([4, 32, 168, 298])

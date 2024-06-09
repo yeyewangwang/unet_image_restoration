@@ -59,8 +59,9 @@ class UnetEncoderBlock(nn.Module):
 
     def forward(self, data: torch.Tensor) -> torch.Tensor:
         """
-        data: (b, c, h, w)
-        output: (b, 2*c, h, w), (b, 2*c, h//2, w//2)
+        Args:
+            data: (b, c, h, w)
+            output: (b, 2*c, h, w), (b, 2*c, h//2, w//2)
         """
         out = self.channel_upsampler(
             data)  # (b, c, h, w) -> (b, 2*c, h//2, w//2)
@@ -96,9 +97,10 @@ class UnetDecoderBlock(nn.Module):
     def forward(self, data: torch.Tensor,
                 skip_connection: torch.Tensor) -> torch.Tensor:
         """
-        data: (b, c, h, w)
-        skip_connection: (b, c//2, 2*h + 1, 2*w + 1)
-        output: (b, c, 2*h + 1, 2*w + 1)
+        args:
+            data: (b, c, h, w)
+            skip_connection: (b, c//2, 2*h + 1, 2*w + 1)
+            output: (b, c, 2*h + 1, 2*w + 1)
 
         Note: skip connection is usually (b, c//2, 2*h, 2*w). Since
         it's trickier when it's (b, c//2, 2*h + 1, 2*w + 1),

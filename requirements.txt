@@ -7,4 +7,3 @@ tqdm
 numpy
 pillow
 wandb
-tensorboard

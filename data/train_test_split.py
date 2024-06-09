@@ -131,8 +131,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     create_datasets(os.path.join(args.src, "train"),
                     args.dst,
-                    train_ratio=0.76, test_ratio=0.12,
+                    train_ratio=0.8, test_ratio=0.1,
                     existing_validation=25, seed=11)
+                    # train_ratio=0.76, test_ratio=0.12,
+                    # existing_validation=25, seed=11)
 
     move_existing_validation(os.path.join(args.src, "validation"), args.dst)
 

@@ -1,6 +1,6 @@
 """
-File: image_restoration_model.py
-Description: Image Restoration Model (U-NET with 1 Encoder and 2 Decoders)
+U-Net for Image Restoration Model, with 1 encoder
+and 2 completely separate decoders.
 """
 from typing import Tuple
 import torch
@@ -8,17 +8,23 @@ import torch.nn as nn
 from model.unet_blocks import UnetEncoderBlock, UnetDecoderBlock, MaskHead, ReconstructHead
 
 
-class ImageRestorationModel(nn.Module):
+class UnetImageRestorationModel(nn.Module):
     def __init__(self):
-        super(ImageRestorationModel, self).__init__()
+        super(UnetImageRestorationModel, self).__init__()
         init_channels = 32
-        self.enc1 = UnetEncoderBlock(in_channels=3, out_channels=init_channels)
-        self.enc2 = UnetEncoderBlock(in_channels=init_channels, out_channels=2*init_channels)
-        self.enc3 = UnetEncoderBlock(in_channels=2*init_channels, out_channels=4*init_channels)
-        self.enc4 = UnetEncoderBlock(in_channels=4*init_channels, out_channels=8*init_channels)
-        self.enc5 = UnetEncoderBlock(in_channels=8*init_channels, out_channels=16*init_channels, is_final_block=True)
+        self.enc1 = UnetEncoderBlock(in_channels=3,
+                                     out_channels=init_channels)
+        self.enc2 = UnetEncoderBlock(in_channels=init_channels,
+                                     out_channels=2*init_channels)
+        self.enc3 = UnetEncoderBlock(in_channels=2*init_channels,
+                                     out_channels=4*init_channels)
+        self.enc4 = UnetEncoderBlock(in_channels=4*init_channels,
+                                     out_channels=8*init_channels)
+        self.enc5 = UnetEncoderBlock(in_channels=8*init_channels,
+                                     out_channels=16*init_channels,
+                                     is_final_block=True)
         self.dec4 = UnetDecoderBlock(
-            in_channels=16* init_channels,
+            in_channels=16*init_channels,
             out_channels=8*init_channels)
         self.dec3 = UnetDecoderBlock(
             in_channels=8*init_channels,
@@ -30,16 +36,16 @@ class ImageRestorationModel(nn.Module):
             in_channels=2*init_channels,
             out_channels=init_channels)
         self.mask_dec4 = UnetDecoderBlock(
-            in_channels=16 * init_channels,
-            out_channels=8 * init_channels)
+            in_channels=16*init_channels,
+            out_channels=8*init_channels)
         self.mask_dec3 = UnetDecoderBlock(
-            in_channels=8 * init_channels,
-            out_channels=4 * init_channels)
+            in_channels=8*init_channels,
+            out_channels=4*init_channels)
         self.mask_dec2 = UnetDecoderBlock(
-            in_channels=4 * init_channels,
-            out_channels=2 * init_channels)
+            in_channels=4*init_channels,
+            out_channels=2*init_channels)
         self.mask_dec1 = UnetDecoderBlock(
-            in_channels=2 * init_channels,
+            in_channels=2*init_channels,
             out_channels=init_channels)
         self.reconstruction_head = ReconstructHead(in_channels=init_channels)
         self.mask_head = MaskHead(in_channels=init_channels)
@@ -48,19 +54,22 @@ class ImageRestorationModel(nn.Module):
             self, corrupted_image: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Forward pass of the Image Restoration Model.
+        Calculate a forward pass of the Unet Image Restoration Model.
 
-        Given a `corrupted_image` with shape (B, C, H, W) where B = batch size, C = # channels,
-        H = image height, W = image width and normalized values between -1 and 1,
-        run the Image Restoration Model forward and return a tuple of two tensors:
-        (`predicted_image`, `predicted_binary_mask`).
+        Args:
+            corrupted_image: (b, c, h, w), b = batch_size, c = # channels,
+            h = image height, w = image width. Values should be normalized
+            between -1 and 1.
 
-        The `predicted_image` should be the output of the Image Decoder (B, C, H, W). In the
-        assignment this is referred to as x^{hat}. This is NOT the `reconstructed_image`,
-        referred to as `x_{reconstructed}` in the assignment handout.
+        Outputs:
+            a tuple of (predicted_image, predicted_binary_mask)
+            predicted_image: (b, c, h, w) output of the image decoder, this
+            is the full predicted where each pixel is predicted, NOT
+            the reconstructed image.
 
-        The `predicted_binary_mask` should be the output of the Binary Mask Decoder (B, 1, H, W). This
-        is `m^{hat}` in the assignment handout.
+            predicted_binary_mask: (b, 1, h, w) output of the binary
+            mask decoder. Should be a probability value indicating
+            the chance of a pixel being corrupted.
         """
         # print(corrupted_image.size())
         out, skip1 = self.enc1(corrupted_image)
@@ -90,4 +99,5 @@ class ImageRestorationModel(nn.Module):
         # print(mask_out.size(), skip1.size())
         mask_out = self.mask_dec1(mask_out, skip1)
         # print(out.size())
-        return self.reconstruction_head(out), self.mask_head(mask_out)
+        return self.reconstruction_head(out),\
+               self.mask_head(mask_out)

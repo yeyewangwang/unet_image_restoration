@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 
 import torch
+from typing import List
 
 
 def normalize_rgb_img(img: np.ndarray) -> np.ndarray:
@@ -42,8 +43,10 @@ def read_rgba_img(img_path: str) -> np.ndarray:
     a = rgba_array[..., 3]
 
     # Normalize RGB channels with alpha and discard alpha channel
-    rgb_array = np.stack([r * (a / 255), g * (a / 255), b * (a / 255)],
-                         axis=-1)
+    rgb_array = np.stack([r * (a / 255),
+                          g * (a / 255),
+                          b * (a / 255)],
+                          axis=-1)
     return rgb_array
 
 
