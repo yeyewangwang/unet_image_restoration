@@ -1,17 +1,22 @@
 # UNet
 
+
+The original U-Net paper:
+> Ronneberger, et al. ["U-Net: Convolutional Networks for Biomedical Image Segmentation."](https://link.springer.com/chapter/10.1007/978-3-319-24574-4_28) MICCAI 2015.
+
+
 ### Facts about UNet:
 1. Symmetrical, skip connection to both reconstruct the pixels and enhance the gradient flow.
-2. Resampling with convolution, to make network size independent of input size, and to save on the total number of parameters. 
+2. Inside each block, we have three residual sub-blocks that maintain the photo resolution.
+3. Various layers can be formulated by `F(X) + X`.  Trivially `F` can be zero, then only skip connection is passed to subsequent layers. Similar to ResNet,  
+   it allows for deeper neural networks.
+4. Photo resolution (H and W) down and up, channel resolution (C) up and down.
+5. Resampling with convolution, to make network size independent of input size, and to save on the total number of parameters. 
 (It does away with fully connected layers).
-3. Inside each block, we have three residual sub-blocks that maintain the photo resolution.
-4. F(X) + X.  Trivially F can be zero, skip for channel. Similar to ResNet,  
-it allows for deeper neural networks.
-5. Photo resolution (H and W) down and up, channel resolution (C) up and down.
 6. Extreme care for resolution changes:
    1. use mirrored padding in convolution;
    2. bilinear upsampling.
-
+   
 ### Sample input and output
 
 Images with square or circular overlays are restored. 
@@ -74,12 +79,9 @@ $ python run_validation.py  --model_checkpoint MODEL_CHECKPOINT --data_dir DATA_
 
 1. Use image resolution that is multiple of the spatial compression factor.
    
-   This is another possible method to irregularities from image resolution change. 
+   This could possibly reduce irregularities from image resolution change. 
 
 
 [comment]: <> (### Implementation details)
 
 [comment]: <> (#### Technique to recover from C // 2 to C)
-
-
-
