@@ -77,9 +77,9 @@ $ python run_validation.py  --model_checkpoint MODEL_CHECKPOINT --data_dir DATA_
 
 ### Work in Progess
 
-1. Use image resolution that is multiple of the spatial compression factor.
+* Use image resolution that is multiple of the spatial compression factor.
    
-   This could possibly reduce irregularities from image resolution change. 
+   This is a potential method to reduce irregularities from image resolution change. 
 
 
 [comment]: <> (### Implementation details)
