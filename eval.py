@@ -74,9 +74,3 @@ if __name__ == "__main__":
                                  filename))
                 pred_pils[i].save(os.path.join(predicted_imgs_dir, filename))
                 mask_pils[i].save(os.path.join(binary_masks_dir, filename))
-
-
-
-
-
-
