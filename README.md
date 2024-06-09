@@ -20,6 +20,11 @@ Images with square or circular overlays are restored.
   <img src="gallery/sf_sample_corrupted.png" alt="Sample of San Francisco panorama with a magenta square corruption" style="width: 45%;"/>
   <img src="gallery/sf_sample_recovered.png" alt="Recovered photo of San Francisco panorama with small visible square edges" style="width: 45%;"/>
 </div>
+
+<div style="display: flex; justify-content: space-between;">
+  <img src="gallery/campus_sample_corrupted.png" alt="Sample of UC Berkeley campanile base and flowers, with a circular shaped corruption." style="width: 45%;"/>
+  <img src="gallery/campus_sample_recovered.png" alt="Recovered photo of UC Berkeley campanile base and flowers. The corrupted area is recovered but brighter than surrounding." style="width: 45%;"/>
+</div>
    
 ### Setup
 
